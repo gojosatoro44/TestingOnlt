@@ -6,7 +6,7 @@ from telegram import (
     InlineKeyboardMarkup, InlineKeyboardButton
 )
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler,
+    Application, CommandHandler,
     MessageHandler, ConversationHandler,
     CallbackQueryHandler, ContextTypes, filters
 )
@@ -18,7 +18,7 @@ FORCE_JOIN_CHANNEL = "@TaskByZahid"
 
 DATA = "data"
 USERS = f"{DATA}/users.json"
-VERIFIED = f"{DATA}/verified.json"  # Stores as {"user_id": amount}
+VERIFIED = f"{DATA}/verified.json"
 os.makedirs(DATA, exist_ok=True)
 
 # Thread lock for file operations
@@ -39,28 +39,23 @@ def load(p, d):
     with file_lock:
         try:
             if not os.path.exists(p):
-                # Create file with default data
                 with open(p, "w") as f: 
                     json.dump(d, f, indent=2)
                 return d
             
-            # Read existing data
             with open(p, "r") as f:
                 content = f.read().strip()
                 if not content:
-                    # If file is empty, initialize with default data
                     with open(p, "w") as fw:
                         json.dump(d, fw, indent=2)
                     return d
                 return json.loads(content)
         except json.JSONDecodeError:
             print(f"⚠️ Warning: Corrupted JSON in {p}, creating backup and resetting...")
-            # Create backup of corrupted file
             if os.path.exists(p):
                 backup_path = f"{p}.backup"
                 with open(p, "r") as f_old, open(backup_path, "w") as f_backup:
                     f_backup.write(f_old.read())
-            # Reset with default data
             with open(p, "w") as f:
                 json.dump(d, f, indent=2)
             return d
@@ -72,16 +67,12 @@ def save(p, d):
     """Save JSON data with atomic write to prevent corruption"""
     with file_lock:
         try:
-            # Write to temporary file first
             temp_path = f"{p}.tmp"
             with open(temp_path, "w") as f: 
                 json.dump(d, f, indent=2)
-            
-            # Atomic rename (replaces original file)
             os.replace(temp_path, p)
         except Exception as e:
             print(f"❌ Error saving {p}: {e}")
-            # Clean up temp file if it exists
             if os.path.exists(f"{p}.tmp"):
                 os.remove(f"{p}.tmp")
 
@@ -116,39 +107,32 @@ def is_admin(user_id):
     return user_id == ADMIN_ID
 
 def is_valid_url(url):
-    """
-    Check if the input is a valid URL.
-    Supports http, https, and common app referral links.
-    """
+    """Check if the input is a valid URL"""
     url = url.strip()
     
-    # Common URL patterns
     url_patterns = [
-        r'^https?://',  # http:// or https://
-        r'^www\.',      # www.domain.com
-        r'^[a-zA-Z0-9]+://',  # protocol://
+        r'^https?://',
+        r'^www\.',
+        r'^[a-zA-Z0-9]+://',
     ]
     
-    # Check if it matches any URL pattern
     for pattern in url_patterns:
         if re.search(pattern, url, re.IGNORECASE):
             return True
     
-    # Check for common referral link patterns
     referral_patterns = [
-        r'^[a-zA-Z0-9]{8,}$',  # Short codes (at least 8 chars)
-        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',  # Email format
-        r'^[a-zA-Z0-9]+=[a-zA-Z0-9]+',  # key=value format
-        r'^ref/[a-zA-Z0-9]+',  # ref/CODE format
-        r'^invite/[a-zA-Z0-9]+',  # invite/CODE format
-        r'^[a-zA-Z0-9]{5,}/[a-zA-Z0-9]{5,}',  # code1/code2 format
+        r'^[a-zA-Z0-9]{8,}$',
+        r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+        r'^[a-zA-Z0-9]+=[a-zA-Z0-9]+',
+        r'^ref/[a-zA-Z0-9]+',
+        r'^invite/[a-zA-Z0-9]+',
+        r'^[a-zA-Z0-9]{5,}/[a-zA-Z0-9]{5,}',
     ]
     
     for pattern in referral_patterns:
         if re.fullmatch(pattern, url, re.IGNORECASE):
             return True
     
-    # Check if it contains common domain words (for user-friendly messages)
     domain_words = ['.com', '.in', '.org', '.net', '.co', '.io', '.me', '.app']
     for word in domain_words:
         if word in url.lower():
@@ -172,7 +156,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = load(USERS, {})
     uid = str(update.effective_user.id)
     
-    # Initialize user if not exists, preserve existing data if exists
     if uid not in users:
         users[uid] = {
             "balance": 0, 
@@ -183,7 +166,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save(USERS, users)
         welcome_msg = f"👋 Welcome {update.effective_user.first_name}!\n✅ You can now submit proofs and withdraw earnings."
     else:
-        # Update name/username in case they changed
         users[uid]["name"] = update.effective_user.full_name
         users[uid]["username"] = update.effective_user.username
         save(USERS, users)
@@ -235,7 +217,6 @@ async def submit_proof(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Join channel first using /start")
         return ConversationHandler.END
     
-    # Create inline keyboard with cancel button
     cancel_kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("❌ Cancel", callback_data="cancel_proof")]
     ])
@@ -252,7 +233,6 @@ async def proof_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     link = update.message.text.strip()
     uid = str(update.effective_user.id)
     
-    # Validate the link
     if not is_valid_url(link):
         cancel_kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("❌ Cancel", callback_data="cancel_proof")]
@@ -265,11 +245,9 @@ async def proof_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return PROOF_LINK
     
-    # Load all data
-    verified = load(VERIFIED, {})  # Dictionary: {user_id: amount}
+    verified = load(VERIFIED, {})
     users = load(USERS, {})
     
-    # Initialize user if not exists
     if uid not in users:
         users[uid] = {
             "balance": 0, 
@@ -282,25 +260,21 @@ async def proof_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     added = 0
     used_verified_id = None
     
-    # Check if link contains any verified ID
     for vid, amount in verified.items():
         if str(vid) in link:
             status = "VERIFIED"
             used_verified_id = vid
             added = amount
             
-            # Add to user's balance
             users[uid]["balance"] += added
             users[uid]["proofs"] += 1
             
-            # Remove used verified ID from dictionary
             del verified[vid]
             break
     
     save(USERS, users)
     save(VERIFIED, verified)
     
-    # Send to admin
     try:
         await context.bot.send_message(
             ADMIN_ID,
@@ -314,7 +288,6 @@ async def proof_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         pass
     
-    # Respond to user
     if status == "VERIFIED":
         if added > 0:
             msg = f"✅ Proof verified!\n💰 ₹{added} added to balance."
@@ -327,13 +300,10 @@ async def proof_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def cancel_proof_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle proof submission cancellation via inline button"""
     query = update.callback_query
     await query.answer()
     
-    await query.edit_message_text(
-        "❌ Proof submission cancelled."
-    )
+    await query.edit_message_text("❌ Proof submission cancelled.")
     await context.bot.send_message(
         chat_id=query.message.chat_id,
         text="Main menu:",
@@ -396,9 +366,7 @@ async def wd_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def wd_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     detail = update.message.text.strip()
     
-    # Validate UPI ID format if method is UPI
     if context.user_data["method"] == "UPI":
-        # Basic UPI validation (contains @ or .)
         if '@' not in detail and '.' not in detail:
             await update.message.reply_text(
                 "❌ Invalid UPI ID format!\n"
@@ -448,18 +416,15 @@ async def wd_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Insufficient balance. You have ₹{users[uid]['balance']}")
         return ConversationHandler.END
     
-    # Check for decimal places
     if '.' in update.message.text:
         decimal_places = len(update.message.text.split('.')[1])
         if decimal_places > 2:
             await update.message.reply_text("❌ Maximum 2 decimal places allowed")
             return WD_AMOUNT
     
-    # Deduct balance
     users[uid]["balance"] -= amt
     save(USERS, users)
     
-    # Send to admin
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Approve", callback_data=f"done:{uid}:{amt}"),
          InlineKeyboardButton("❌ Reject", callback_data=f"rej:{uid}:{amt}")]
@@ -480,7 +445,6 @@ async def wd_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         print(f"Error sending to admin: {e}")
-        # Refund if failed to notify admin
         users[uid]["balance"] += amt
         save(USERS, users)
         await update.message.reply_text("❌ Error processing request. Please try again.")
@@ -520,7 +484,6 @@ async def wd_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await query.edit_message_text(f"✅ Withdrawal approved for user {uid}")
     else:
-        # Refund balance
         users = load(USERS, {})
         if uid in users:
             users[uid]["balance"] += amount
@@ -704,11 +667,9 @@ async def add_ver_ids(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for line in lines:
         line = line.strip()
-        # Extract numbers from the line (for IDs)
         numbers = re.findall(r'\d+', line)
         for num in numbers:
-            if len(num) >= 8:  # Assuming user IDs are at least 8 digits
-                # Add unique IDs only
+            if len(num) >= 8:
                 if num not in extracted_ids:
                     extracted_ids.append(num)
     
@@ -716,11 +677,9 @@ async def add_ver_ids(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No valid user IDs found. Try again.")
         return ADD_VER_IDS
     
-    # Store extracted IDs in context
     context.user_data["ver_ids"] = extracted_ids
     
-    # Show extracted IDs
-    ids_preview = "\n".join(extracted_ids[:10])  # Show first 10
+    ids_preview = "\n".join(extracted_ids[:10])
     if len(extracted_ids) > 10:
         ids_preview += f"\n... and {len(extracted_ids) - 10} more"
     
@@ -753,11 +712,9 @@ async def ver_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for uid in extracted_ids:
         if uid not in verified:
-            # New ID
             verified[uid] = amount
             added_count += 1
         else:
-            # Existing ID - update amount
             verified[uid] = amount
             updated_count += 1
     
@@ -773,7 +730,6 @@ async def ver_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(result_msg, reply_markup=admin_menu())
     
-    # Clear context
     context.user_data.clear()
     return ConversationHandler.END
 
@@ -788,7 +744,6 @@ async def view_verified_ids(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No verified IDs found")
         return
     
-    # Show last 20 verified IDs
     items = list(verified.items())[-20:]
     msg = f"📋 VERIFIED IDs (Last 20)\n━━━━━━━━━━━━━━\n\n"
     
@@ -809,8 +764,6 @@ async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     total_balance = sum(user["balance"] for user in users.values())
     total_proofs = sum(user["proofs"] for user in users.values())
-    
-    # Calculate total amount in verified IDs
     total_verified_amount = sum(verified.values())
     
     await update.message.reply_text(
@@ -833,7 +786,6 @@ async def user_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ No users found")
         return
     
-    # Show last 5 users
     user_list = list(users.items())[-5:]
     msg = "📋 RECENT USERS\n━━━━━━━━━━━━━━\n\n"
     
@@ -859,29 +811,24 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ================= MAIN =================
 def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).build()
     
-    # Basic commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CommandHandler("cancel", cancel))
     
-    # Callback queries
     app.add_handler(CallbackQueryHandler(check_join_callback, pattern="^check_join$"))
     app.add_handler(CallbackQueryHandler(cancel_proof_callback, pattern="^cancel_proof$"))
     app.add_handler(CallbackQueryHandler(wd_action, pattern="^(done|rej):"))
     
-    # User menu
     app.add_handler(MessageHandler(filters.Regex("^💰 Balance$"), balance))
     app.add_handler(MessageHandler(filters.Regex("^🆘 Support$"), support))
     
-    # Admin menu
     app.add_handler(MessageHandler(filters.Regex("^👥 Total Users$"), total_users))
     app.add_handler(MessageHandler(filters.Regex("^📊 User Details$"), user_details))
     app.add_handler(MessageHandler(filters.Regex("^🗑️ View Verified IDs$"), view_verified_ids))
     app.add_handler(MessageHandler(filters.Regex("^🏠 Main Menu$"), start))
     
-    # Submit Proof Conversation
     proof_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📤 Submit Proof$"), submit_proof)],
         states={
@@ -893,7 +840,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
     
-    # Withdraw Conversation
     withdraw_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^💸 Withdraw$"), withdraw)],
         states={
@@ -904,7 +850,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
     
-    # Add Balance Conversation
     add_bal_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➕ Add Balance$"), add_balance)],
         states={
@@ -914,7 +859,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
     
-    # Remove Balance Conversation
     rem_bal_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^➖ Remove Balance$"), remove_balance)],
         states={
@@ -924,7 +868,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
     
-    # Add Verified IDs Conversation
     ver_ids_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📋 Add Verified IDs$"), add_verified_ids)],
         states={
@@ -934,7 +877,6 @@ def main():
         fallbacks=[CommandHandler("cancel", cancel)]
     )
     
-    # Add all conversation handlers
     app.add_handler(proof_conv)
     app.add_handler(withdraw_conv)
     app.add_handler(add_bal_conv)
@@ -942,7 +884,7 @@ def main():
     app.add_handler(ver_ids_conv)
     
     print("🤖 Bot is running...")
-    print("📁 Data persistence enabled - user data will be saved across restarts")
+    print("📁 Data persistence enabled - user data saved across restarts")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
