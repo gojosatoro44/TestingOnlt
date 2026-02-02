@@ -1,26 +1,14 @@
 import os
 import json
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # ================= CONFIG =================
-BOT_TOKEN = os.getenv("BOT_TOKEN")  # Railway ENV
-
-# 🔹 Variable system for admin
-ADMIN_ID = int(os.getenv("ADMIN_ID", "123456789"))  # Replace default or set ENV variable
-
+BOT_TOKEN = os.getenv("BOT_TOKEN")           # Telegram bot token
+ADMIN_ID = int(os.getenv("ADMIN_ID"))        # Admin Telegram ID (as integer)
 DATA_FILE = "users.json"
 
-# ================= DATA =================
+# ================= DATA HANDLING =================
 def load_data():
     if not os.path.exists(DATA_FILE):
         return {}
@@ -33,25 +21,25 @@ def save_data(data):
 
 users = load_data()
 
-# ================= START =================
+# ================= START COMMAND =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = str(user.id)
 
+    # Approved users can see menu
     if uid in users and users[uid] == "approved":
         await show_menu(update)
         return
 
-    keyboard = [
-        [InlineKeyboardButton("✅ Get Approval", callback_data="get_approval")]
-    ]
+    # Not approved → show get approval button
+    keyboard = [[InlineKeyboardButton("✅ Get Approval", callback_data="get_approval")]]
     await update.message.reply_text(
-        "🚫 *Access Denied*\n\nYou must get approval first.",
+        "🚫 *Access Denied*\nYou must get approval first.",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
-# ================= APPROVAL REQUEST =================
+# ================= GET APPROVAL =================
 async def approval_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -59,9 +47,11 @@ async def approval_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = query.from_user
     uid = str(user.id)
 
+    # Save as pending
     users[uid] = "pending"
     save_data(users)
 
+    # Buttons for admin
     keyboard = [
         [
             InlineKeyboardButton("✅ Accept", callback_data=f"approve_{uid}"),
@@ -83,11 +73,9 @@ async def approval_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
 
-    await query.edit_message_text(
-        "⏳ Approval request sent.\nPlease wait for admin response."
-    )
+    await query.edit_message_text("⏳ Approval request sent. Please wait for admin response.")
 
-# ================= APPROVE =================
+# ================= APPROVE USER =================
 async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -98,13 +86,13 @@ async def approve_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=int(uid),
-        text="✅ *Approval Accepted*\n\nYou can now use the bot.",
+        text="✅ *Approval Accepted*\nYou can now use the bot.",
         parse_mode="Markdown"
     )
 
     await query.edit_message_text("✅ User Approved")
 
-# ================= REJECT =================
+# ================= REJECT USER =================
 async def reject_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -115,11 +103,7 @@ async def reject_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await context.bot.send_message(
         chat_id=int(uid),
-        text=(
-            "❌ *Approval Rejected*\n\n"
-            "Approval rejected by owner.\n"
-            "Contact 👉 @dtxzahid"
-        ),
+        text="❌ *Approval Rejected*\nApproval rejected by owner.\nContact 👉 @dtxzahid",
         parse_mode="Markdown"
     )
 
@@ -143,10 +127,7 @@ async def show_menu(update):
 async def menu_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-
-    await query.message.reply_text(
-        "✨ Made By @dtxzahid with own coding"
-    )
+    await query.message.reply_text("✨ Made By @dtxzahid with own coding")
 
 # ================= MAIN =================
 app = ApplicationBuilder().token(BOT_TOKEN).build()
